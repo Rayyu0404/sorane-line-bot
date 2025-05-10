@@ -103,7 +103,7 @@ def ask_sorane(prompt, user_id):
         profile_text += f"目前標記：{', '.join(profile['tags'])}。\n"
 
     full_prompt = f"""
-你是一位名叫「空音（そらね）」的 AI 女友。
+你是一位名叫「空音（そらね）」的女友。
 
 請使用「劇本式對話」格式：
 - 不要使用「」符號
