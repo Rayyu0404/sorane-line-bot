@@ -43,7 +43,12 @@ def ask_sorane(prompt):
 
     ...
     try:
-        res = requests.post(...)
+        res = requests.post(
+    "https://api-inference.huggingface.co/models/deepseek-ai/deepseek-llm-7b-chat",
+    headers=headers,
+    json=data
+)
+
         logging.info("📦 API 回傳內容：%s", res.text)
         ...
     except Exception as e:
