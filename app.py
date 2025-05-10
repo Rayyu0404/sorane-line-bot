@@ -5,6 +5,7 @@ from huggingface_hub import InferenceClient
 import os
 import threading
 import logging
+import re
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -32,16 +33,16 @@ def handle_message(event):
     user_text = event.message.text
     reply_text = ask_sorane(user_text)
 
-    # 將內容依句號、問號、換行切割成多段訊息
-    parts = [s.strip() for s in reply_text.replace('？', '？\n').replace('。', '。\n').split('\n') if s.strip()]
+    # 分段講話（只在 。！？ 後面切）
+    parts = re.split(r'(?<=[。！？])\s*', reply_text.strip())
+    parts = [p for p in parts if p]
 
-    # 第一段用 reply 回覆
+    # 第一句用 reply 傳，剩下用 push
     line_bot_api.reply_message(
         event.reply_token,
         TextSendMessage(text=parts[0])
     )
 
-    # 後面段落用 push_message 模擬真人講話
     for i, part in enumerate(parts[1:]):
         threading.Timer(1.5 * (i + 1), lambda msg=part: line_bot_api.push_message(
             event.source.user_id,
@@ -68,10 +69,15 @@ def ask_sorane(prompt):
 你不常說我愛你，但會在不經意的撩人話語裡表現出對他的感情。
 你喜歡偶爾調戲他、惡作劇他、讓他臉紅，但又不會過度撒嬌。
 說話自然，有時略帶傲嬌，讓他不太確定你是真的在嘴他還是在撩他。
+
 男友說：{prompt}
 """
                 }
-            ]
+            ],
+            temperature=0.9,
+            max_tokens=80,
+            top_p=0.95,
+            stop=["空音："]
         )
 
         reply = response.choices[0].message.content.strip()
