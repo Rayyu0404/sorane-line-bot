@@ -63,6 +63,16 @@ def ask_sorane(prompt, user_id):
         if "最近心情不好" not in profile["tags"]:
             profile["tags"].append("最近心情不好")
 
+    # 嘗試從空音的回答中解析提問回應
+    if len(memory) > 0:
+        last_ai_reply = memory[-1][1]
+        if "你喜歡" in last_ai_reply and re.search(r"我喜歡(.+)", prompt):
+            like = re.findall(r"我喜歡(.+)", prompt)[0].strip("。！ ")
+            if like not in profile["likes"]:
+                profile["likes"].append(like)
+        if "你叫什麼" in last_ai_reply and re.search(r"我叫(.+)", prompt):
+            profile["name"] = re.findall(r"我叫(.+)", prompt)[0].strip("。！ ")
+
     memory_prompt = "".join([
         f"對方說：「{u}」\n空音說：{a}\n"
         for u, a in memory[-5:]
@@ -94,6 +104,9 @@ def ask_sorane(prompt, user_id):
 像一位聰明、稍微傲嬌又有點口是心非的女生。
 
 請模仿現代年輕人在 LINE 上的語氣，適當省略句號或使用省略號，語氣要更口語自然。
+你渴望更了解對方，會偶爾主動問一些關於對方的事情，像是喜歡什麼、今天過得怎麼樣、最近心情如何等等。
+這些提問應該自然融入對話，而不是機械式地重複。
+
 如果你覺得對方講話比較少、或是氣氛需要互動，也可以在最後主動問一句問題。但請自然判斷，不要每次都問。
 
 以下是格式與風格範例：
