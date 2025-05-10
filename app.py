@@ -6,6 +6,7 @@ import os
 import threading
 import logging
 import re
+import json
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -35,6 +36,24 @@ def callback():
 def handle_message(event):
     user_id = event.source.user_id
     user_text = event.message.text.strip()
+
+    # 自動抽取資訊並更新 profile
+    extracted = extract_profile_from_text(user_text)
+    if extracted:
+        profile = user_profile.setdefault(user_id, {"name": "", "likes": [], "location": "", "tags": []})
+        if 'name' in extracted:
+            profile['name'] = extracted['name']
+        if 'likes' in extracted:
+            for item in extracted['likes']:
+                if item not in profile['likes']:
+                    profile['likes'].append(item)
+        if 'location' in extracted:
+            profile['location'] = extracted['location']
+        if 'tags' in extracted:
+            for tag in extracted['tags']:
+                if tag not in profile['tags']:
+                    profile['tags'].append(tag)
+
     reply_text = ask_sorane(user_text, user_id)
 
     parts = split_reply(reply_text)
@@ -45,33 +64,35 @@ def handle_message(event):
             TextSendMessage(text=msg)
         )).start()
 
+def extract_profile_from_text(text):
+    prompt = f"""
+你是一個助手，請從這句話中提取出任何有關對方個人資訊的內容（如名字、喜好、地點、情緒等），並以 JSON 格式輸出。
+如果沒有可用資訊，就回傳空字串。
+
+輸入：「{text}」
+輸出：
+"""
+    client = InferenceClient(provider="novita", api_key=os.getenv("HF_TOKEN"))
+    try:
+        response = client.chat.completions.create(
+            model="deepseek-ai/DeepSeek-V3-0324",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=100,
+            top_p=0.9
+        )
+        result = response.choices[0].message.content.strip()
+        logging.info("🧠 資訊抽取結果：%s", result)
+        return json.loads(result) if result and result.startswith('{') else {}
+    except Exception as e:
+        logging.warning("❌ 抽取資訊失敗：%s", e)
+        return {}
+
 def ask_sorane(prompt, user_id):
     logging.info("✅ 空音收到：%s", prompt)
 
     memory = user_memory.get(user_id, [])
     profile = user_profile.setdefault(user_id, {"name": "", "likes": [], "location": "", "tags": []})
-
-    if match := re.match(r"我叫(.+)", prompt):
-        profile["name"] = match.group(1).strip("。！ ")
-    if match := re.search(r"我喜歡(.+)", prompt):
-        like = match.group(1).strip("。！ ")
-        if like not in profile["likes"]:
-            profile["likes"].append(like)
-    if match := re.search(r"我來自(.+)", prompt):
-        profile["location"] = match.group(1).strip("。！ ")
-    if "心情不好" in prompt:
-        if "最近心情不好" not in profile["tags"]:
-            profile["tags"].append("最近心情不好")
-
-    # 嘗試從空音的回答中解析提問回應
-    if len(memory) > 0:
-        last_ai_reply = memory[-1][1]
-        if "你喜歡" in last_ai_reply and re.search(r"我喜歡(.+)", prompt):
-            like = re.findall(r"我喜歡(.+)", prompt)[0].strip("。！ ")
-            if like not in profile["likes"]:
-                profile["likes"].append(like)
-        if "你叫什麼" in last_ai_reply and re.search(r"我叫(.+)", prompt):
-            profile["name"] = re.findall(r"我叫(.+)", prompt)[0].strip("。！ ")
 
     memory_prompt = "".join([
         f"對方說：「{u}」\n空音說：{a}\n"
