@@ -57,7 +57,7 @@ def ask_sorane(prompt):
     try:
         return res.json()[0]["generated_text"].split("空音：")[1].strip()
     except:
-        return "我現在不太想說話..."
+        return "我現在不太想說話。你是不是又惹我了？"
 
 if __name__ == "__main__":
     app.run()
