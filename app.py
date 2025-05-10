@@ -37,25 +37,10 @@ def handle_message(event):
     user_id = event.source.user_id
     user_text = event.message.text.strip()
 
-    # 自動抽取資訊並更新 profile
-    extracted = extract_profile_from_text(user_text)
-    if extracted:
-        profile = user_profile.setdefault(user_id, {"name": "", "likes": [], "location": "", "tags": []})
-        if 'name' in extracted:
-            profile['name'] = extracted['name']
-        if 'likes' in extracted:
-            for item in extracted['likes']:
-                if item not in profile['likes']:
-                    profile['likes'].append(item)
-        if 'location' in extracted:
-            profile['location'] = extracted['location']
-        if 'tags' in extracted:
-            for tag in extracted['tags']:
-                if tag not in profile['tags']:
-                    profile['tags'].append(tag)
+    # 自動抽取記憶資訊（AI 推理）
+    extract_profile_info(user_text, user_id)
 
     reply_text = ask_sorane(user_text, user_id)
-
     parts = split_reply(reply_text)
     line_bot_api.reply_message(event.reply_token, TextSendMessage(text=parts[0]))
     for i, part in enumerate(parts[1:]):
@@ -64,29 +49,37 @@ def handle_message(event):
             TextSendMessage(text=msg)
         )).start()
 
-def extract_profile_from_text(text):
+def extract_profile_info(message, user_id):
+    profile = user_profile.setdefault(user_id, {"name": "", "likes": [], "location": "", "tags": []})
     prompt = f"""
-你是一個助手，請從這句話中提取出任何有關對方個人資訊的內容（如名字、喜好、地點、情緒等），並以 JSON 格式輸出。
-如果沒有可用資訊，就回傳空字串。
+以下是一段使用者的訊息，請從中抽取對他個人相關的資訊，像是：名字、喜好、所在地、身分、情緒、目標等。
+請用 JSON 格式輸出，欄位有：name、likes、location、tags（皆為字串或字串列表），沒有的請空白或為空陣列。
 
-輸入：「{text}」
-輸出：
-"""
-    client = InferenceClient(provider="novita", api_key=os.getenv("HF_TOKEN"))
+訊息如下：
+「{message}」
+    """
     try:
-        response = client.chat.completions.create(
+        client = InferenceClient(provider="novita", api_key=os.getenv("HF_TOKEN"))
+        res = client.chat.completions.create(
             model="deepseek-ai/DeepSeek-V3-0324",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
-            max_tokens=100,
-            top_p=0.9
+            max_tokens=100
         )
-        result = response.choices[0].message.content.strip()
-        logging.info("🧠 資訊抽取結果：%s", result)
-        return json.loads(result) if result and result.startswith('{') else {}
+        result = json.loads(res.choices[0].message.content.strip())
+        if result.get("name"):
+            profile["name"] = result["name"]
+        for like in result.get("likes", []):
+            if like not in profile["likes"]:
+                profile["likes"].append(like)
+        if result.get("location"):
+            profile["location"] = result["location"]
+        for tag in result.get("tags", []):
+            if tag not in profile["tags"]:
+                profile["tags"].append(tag)
     except Exception as e:
-        logging.warning("❌ 抽取資訊失敗：%s", e)
-        return {}
+        logging.warning("記憶抽取失敗：%s", e)
+
 
 def ask_sorane(prompt, user_id):
     logging.info("✅ 空音收到：%s", prompt)
@@ -125,9 +118,6 @@ def ask_sorane(prompt, user_id):
 像一位聰明、稍微傲嬌又有點口是心非的女生。
 
 請模仿現代年輕人在 LINE 上的語氣，適當省略句號或使用省略號，語氣要更口語自然。
-你渴望更了解對方，會偶爾主動問一些關於對方的事情，像是喜歡什麼、今天過得怎麼樣、最近心情如何等等。
-這些提問應該自然融入對話，而不是機械式地重複。
-
 如果你覺得對方講話比較少、或是氣氛需要互動，也可以在最後主動問一句問題。但請自然判斷，不要每次都問。
 
 以下是格式與風格範例：
