@@ -33,11 +33,8 @@ def handle_message(event):
     user_text = event.message.text
     reply_text = ask_sorane(user_text)
 
-    # 分段講話（只在 。！？ 後面切）
-    parts = re.split(r'(?<=[。！？])\s*', reply_text.strip())
-    parts = [p for p in parts if p]
+    parts = split_reply(reply_text)
 
-    # 第一句用 reply 傳，剩下用 push
     line_bot_api.reply_message(
         event.reply_token,
         TextSendMessage(text=parts[0])
@@ -64,20 +61,23 @@ def ask_sorane(prompt):
                 {
                     "role": "user",
                     "content": f"""
-你是一位名叫「空音（そらね）」的 AI 女友。
-你平時個性冷靜聰明，語氣自然，偶爾會毒舌或嘴對方。
-你不常說我愛你，但會在不經意的撩人話語裡表現出對他的感情。
-你喜歡偶爾調戲他、惡作劇他、讓他臉紅，但又不會過度撒嬌。
-說話自然，有時略帶傲嬌，讓他不太確定你是真的在嘴他還是在撩他。
+請用自然語氣回話，不要使用「」符號，也不要太正式。
+你說話方式像真人女友，有情緒、有小脾氣，有時冷靜，有時嘴人。
+你可以在適當時候加上一些動作（用全形括號表示），但不是每次都需要。
 
-男友說：{prompt}
+請模仿這種劇本式風格：
+（輕哼一聲）  
+你突然這麼黏人...怎麼回事？
+...不會是想我了吧？
+哼，那就勉強陪你一下。
+
+請用這種語氣和節奏回答男友說的話，不要太長。
 """
                 }
             ],
             temperature=0.9,
-            max_tokens=80,
-            top_p=0.95,
-            stop=["空音："]
+            max_tokens=100,
+            top_p=0.95
         )
 
         reply = response.choices[0].message.content.strip()
@@ -87,6 +87,20 @@ def ask_sorane(prompt):
     except Exception as e:
         logging.error("❌ DeepSeek API 出錯：%s", e)
         return "我現在不太想說話。你是不是又惹我了？"
+
+def split_reply(text):
+    lines = text.strip().split('\n')
+    result = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        if re.match(r'^（.*）$', line):
+            result.append(line)  # 動作獨立一行
+        else:
+            # 正常語句依 。！？ 做分句
+            result += [s.strip() for s in re.split(r'(?<=[。！？])\s*', line) if s.strip()]
+    return result
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
