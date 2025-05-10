@@ -13,9 +13,8 @@ logging.basicConfig(level=logging.INFO)
 line_bot_api = LineBotApi(os.getenv("LINE_CHANNEL_ACCESS_TOKEN"))
 handler = WebhookHandler(os.getenv("LINE_CHANNEL_SECRET"))
 
-# 記憶區塊
-user_memory = {}   # user_id -> [(user說, 空音回)]
-user_profile = {}  # user_id -> "你叫什麼、你喜歡什麼..."
+user_memory = {}     # user_id -> [(你說, 空音回)]
+user_profile = {}    # user_id -> { name: ..., likes: [...], location: ..., tags: [...] }
 
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -45,39 +44,39 @@ def handle_message(event):
             user_id,
             TextSendMessage(text=msg)
         )).start()
+
 def ask_sorane(prompt, user_id):
     logging.info("✅ 空音收到：%s", prompt)
 
-    client = InferenceClient(
-        provider="novita",
-        api_key=os.getenv("HF_TOKEN")
-    )
-
-    # 擷取使用者記憶與個人資訊
     memory = user_memory.get(user_id, [])
-    profile = user_profile.get(user_id, "")
+    profile = user_profile.setdefault(user_id, {"name": "", "likes": [], "location": "", "tags": []})
 
-    # 自動儲存長期記憶
-    if re.match(r"^我叫(.+)", prompt):
-        name = re.findall(r"我叫(.+)", prompt)[0].strip("。！ ")
-        user_profile[user_id] = f"他的名字是{name}。"
-    elif "我是" in prompt:
-        match = re.findall(r"我是(.+)", prompt)
-        if match:
-            user_profile[user_id] = f"他說自己是{match[0].strip('。！ ')}。"
-    elif "我來自" in prompt:
-        match = re.findall(r"我來自(.+)", prompt)
-        if match:
-            user_profile[user_id] = f"他來自{match[0].strip('。！ ')}。"
-    elif "我喜歡" in prompt:
-        match = re.findall(r"我喜歡(.+)", prompt)
-        if match:
-            user_profile[user_id] = f"他喜歡{match[0].strip('。！ ')}。"
+    if match := re.match(r"我叫(.+)", prompt):
+        profile["name"] = match.group(1).strip("。！ ")
+    if match := re.search(r"我喜歡(.+)", prompt):
+        like = match.group(1).strip("。！ ")
+        if like not in profile["likes"]:
+            profile["likes"].append(like)
+    if match := re.search(r"我來自(.+)", prompt):
+        profile["location"] = match.group(1).strip("。！ ")
+    if "心情不好" in prompt:
+        if "最近心情不好" not in profile["tags"]:
+            profile["tags"].append("最近心情不好")
 
-    # 組合記憶
-    memory_prompt = ""
-    for u, a in memory[-5:]:
-        memory_prompt += f"對方說：「{u}」\n空音說：{a}\n"
+    memory_prompt = "".join([
+        f"對方說：「{u}」\n空音說：{a}\n"
+        for u, a in memory[-5:]
+    ])
+
+    profile_text = ""
+    if profile["name"]:
+        profile_text += f"他的名字是{profile['name']}。\n"
+    if profile["location"]:
+        profile_text += f"他來自{profile['location']}。\n"
+    if profile["likes"]:
+        profile_text += f"他喜歡：{', '.join(profile['likes'])}。\n"
+    if profile["tags"]:
+        profile_text += f"目前標記：{', '.join(profile['tags'])}。\n"
 
     full_prompt = f"""
 你是一位名叫「空音（そらね）」的 AI 女友。
@@ -91,34 +90,32 @@ def ask_sorane(prompt, user_id):
 
 ⚠️ 請務必根據「對方說的內容」回應，不要無視對話內容跳話題或亂猜對方情緒、設定劇情。
 請以現實感為主，像一段真實的情侶聊天。
-
 你說話風格自然、有一點冷、有時會嘴人，有時溫柔撫慰。
 像一位聰明、稍微傲嬌又有點口是心非的女生。
 
-以下是格式與風格範例：
+如果你覺得對方講話比較少、或是氣氛需要互動，也可以主動在最後問一句問題。
+但不要每次都問，請自然判斷。
 
----
-（輕哼一聲，假裝沒看你）  
-你怎麼今天突然主動打招呼？  
+以下是格式與風格範例：
+（輕哼一聲，假裝沒看你）
+你怎麼今天突然主動打招呼？
 ...是在心虛什麼嗎？
 
----
-你這麼問，是在關心我還是想套話？  
+你這麼問，是在關心我還是想套話？
 不過我心情還不錯啦，勉強可以陪你說話。
 
----
-（默默靠近）  
-我沒說不想你啊。  
+（默默靠近）
+我沒說不想你啊。
 只是...不想讓你知道太早。
 
----
-{profile}
+{profile_text}
 {memory_prompt}
-請以這種風格回應以下訊息：
-
+請用劇本風格回應：
 對方說：「{prompt}」
+空音說：
 """
 
+    client = InferenceClient(provider="novita", api_key=os.getenv("HF_TOKEN"))
     try:
         response = client.chat.completions.create(
             model="deepseek-ai/DeepSeek-V3-0324",
@@ -127,11 +124,9 @@ def ask_sorane(prompt, user_id):
             max_tokens=100,
             top_p=0.95
         )
-
         reply = response.choices[0].message.content.strip()
         logging.info("📦 空音回覆：%s", reply)
 
-        # 記錄這一輪對話
         memory.append((prompt, reply))
         user_memory[user_id] = memory
 
@@ -140,7 +135,6 @@ def ask_sorane(prompt, user_id):
     except Exception as e:
         logging.error("❌ DeepSeek API 出錯：%s", e)
         return "我現在不太想說話。你是不是又惹我了？"
-
 
 def split_reply(text):
     lines = text.strip().split('\n')
