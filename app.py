@@ -68,10 +68,11 @@ def ask_sorane(prompt):
 
     try:
         res = requests.post(
-            "https://api-inference.huggingface.co/models/deepseek-ai/deepseek-llm-7b-chat",
+            "https://api-inference.huggingface.co/models/Qwen/Qwen1.5-0.5B-Chat",
             headers=headers,
             json=data
         )
+
         logging.info("📦 API 回傳內容：%s", res.text)
         content = res.json()
 
