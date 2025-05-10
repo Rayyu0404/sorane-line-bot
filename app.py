@@ -31,10 +31,22 @@ def callback():
 def handle_message(event):
     user_text = event.message.text
     reply_text = ask_sorane(user_text)
+
+    # 將內容依句號、問號、換行切割成多段訊息
+    parts = [s.strip() for s in reply_text.replace('？', '？\n').replace('。', '。\n').split('\n') if s.strip()]
+
+    # 第一段用 reply 回覆
     line_bot_api.reply_message(
         event.reply_token,
-        TextSendMessage(text=reply_text)
+        TextSendMessage(text=parts[0])
     )
+
+    # 後面段落用 push_message 模擬真人講話
+    for i, part in enumerate(parts[1:]):
+        threading.Timer(1.5 * (i + 1), lambda msg=part: line_bot_api.push_message(
+            event.source.user_id,
+            TextSendMessage(text=msg)
+        )).start()
 
 def ask_sorane(prompt):
     logging.info("✅ 空音收到：%s", prompt)
@@ -56,8 +68,6 @@ def ask_sorane(prompt):
 你不常說我愛你，但會在不經意的撩人話語裡表現出對他的感情。
 你喜歡偶爾調戲他、惡作劇他、讓他臉紅，但又不會過度撒嬌。
 說話自然，有時略帶傲嬌，讓他不太確定你是真的在嘴他還是在撩他。
-不要使用過多顏文字或表情符號。
-
 男友說：{prompt}
 """
                 }
