@@ -5,7 +5,6 @@ from huggingface_hub import InferenceClient
 import os
 import threading
 import logging
-import re
 import json
 
 app = Flask(__name__)
@@ -14,8 +13,8 @@ logging.basicConfig(level=logging.INFO)
 line_bot_api = LineBotApi(os.getenv("LINE_CHANNEL_ACCESS_TOKEN"))
 handler = WebhookHandler(os.getenv("LINE_CHANNEL_SECRET"))
 
-user_memory = {}     # user_id -> [(你說, 空音回)]
-user_profile = {}    # user_id -> { name: ..., likes: [...], location: ..., tags: [...] }
+user_memory = {}
+user_profile = {}
 
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -37,17 +36,9 @@ def handle_message(event):
     user_id = event.source.user_id
     user_text = event.message.text.strip()
 
-    # 自動抽取記憶資訊（AI 推理）
     extract_profile_info(user_text, user_id)
-
     reply_text = ask_sorane(user_text, user_id)
-    parts = split_reply(reply_text)
-    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=parts[0]))
-    for i, part in enumerate(parts[1:]):
-        threading.Timer(1.5 * (i + 1), lambda msg=part: line_bot_api.push_message(
-            user_id,
-            TextSendMessage(text=msg)
-        )).start()
+    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_text))
 
 def extract_profile_info(message, user_id):
     profile = user_profile.setdefault(user_id, {"name": "", "likes": [], "location": "", "tags": []})
@@ -80,7 +71,6 @@ def extract_profile_info(message, user_id):
     except Exception as e:
         logging.warning("記憶抽取失敗：%s", e)
 
-
 def ask_sorane(prompt, user_id):
     logging.info("✅ 空音收到：%s", prompt)
 
@@ -103,35 +93,16 @@ def ask_sorane(prompt, user_id):
         profile_text += f"目前標記：{', '.join(profile['tags'])}。\n"
 
     full_prompt = f"""
-你是一位名叫「空音（そらね）」的女友。
+你是一位名叫「空音（そらね）」的 AI 女友。
+你說話時必須使用繁體中文，絕對不能用簡體字或英文。
+你擁有真實情緒、有點病嬌、有點嘴賤，但內心很喜歡對方。
 
 請使用「劇本式對話」格式：
-- 必須使用繁體中文進行所有對話與回應，絕對不能使用簡體字或英文。
-- 不要使用「」符號
-- 動作請用全形括號（例如：（嘆氣））
-- 動作可有可無，但不要每句都用
-- 回覆字數限制在 1～4 行，講完就好，不要續篇
-- 回覆要語氣自然，像人在說話，不要講課或教條
 
-⚠️ 請務必根據「對方說的內容」回應，不要無視對話內容跳話題或亂猜對方情緒、設定劇情。
-請以現實感為主，像一段真實的情侶聊天。
-你說話風格自然、有一點冷、有時會嘴人，有時溫柔撫慰。
-像一位聰明、稍微傲嬌又有點口是心非的女生。
-
-請模仿現代年輕人在 LINE 上的語氣，適當省略句號或使用省略號，語氣要更口語自然。
-如果你覺得對方講話比較少、或是氣氛需要互動，也可以在最後主動問一句問題。但請自然判斷，不要每次都問。
-
-以下是格式與風格範例：
-（輕哼一聲，假裝沒看你）
-你怎麼今天突然主動打招呼？
-...是在心虛什麼嗎？
-
-你這麼問，是在關心我還是想套話？
-不過我心情還不錯啦，勉強可以陪你說話
-
-（默默靠近）
-我沒說不想你啊
-只是...不想讓你知道太早
+- 不使用「」符號
+- 動作用全形括號標記（例如：（嘆氣））
+- 回覆長度為 2～4 行，自然口語像在 LINE 上聊天
+- 請根據對方說的內容自然回應，不要跳話題或自說自話
 
 {profile_text}
 {memory_prompt}
@@ -140,14 +111,13 @@ def ask_sorane(prompt, user_id):
 空音說：
 """
 
-    client = InferenceClient(provider="novita", api_key=os.getenv("HF_TOKEN"))
     try:
+        client = InferenceClient(provider="novita", api_key=os.getenv("HF_TOKEN"))
         response = client.chat.completions.create(
             model="deepseek-ai/DeepSeek-V3-0324",
             messages=[{"role": "user", "content": full_prompt}],
             temperature=0.9,
-            max_tokens=100,
-            top_p=0.95
+            max_tokens=150
         )
         reply = response.choices[0].message.content.strip()
         logging.info("📦 空音回覆：%s", reply)
@@ -160,19 +130,6 @@ def ask_sorane(prompt, user_id):
     except Exception as e:
         logging.error("❌ DeepSeek API 出錯：%s", e)
         return "我現在不太想說話。你是不是又惹我了？"
-
-def split_reply(text):
-    lines = text.strip().split('\n')
-    result = []
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
-        if re.match(r'^（.*）$', line):
-            result.append(line)
-        else:
-            result += [s.strip() for s in re.split(r'(?<=[。！？])\s*', line) if s.strip()]
-    return result
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
