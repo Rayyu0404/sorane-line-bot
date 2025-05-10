@@ -1,6 +1,8 @@
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
+import threading
+from flask import copy_current_request_context
 import requests
 import os
 
@@ -14,11 +16,16 @@ def callback():
     signature = request.headers['X-Line-Signature']
     body = request.get_data(as_text=True)
 
-    try:
-        handler.handle(body, signature)
-    except:
-        abort(400)
+    @copy_current_request_context
+    def handle_later():
+        try:
+            handler.handle(body, signature)
+        except Exception as e:
+            print("LINE webhook error:", e)
+
+    threading.Thread(target=handle_later).start()
     return 'OK'
+
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
