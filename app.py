@@ -68,10 +68,11 @@ def ask_sorane(prompt):
 
     try:
         res = requests.post(
-            "https://api-inference.huggingface.co/models/Qwen/Qwen1.5-0.5B-Chat",
+            "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.1",
             headers=headers,
             json=data
         )
+
 
         logging.info("📦 API 回傳內容：%s", res.text)
         content = res.json()
